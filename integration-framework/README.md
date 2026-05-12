@@ -14,6 +14,62 @@ A Spring Boot library that provides resilient HTTP client capabilities via a dec
 
 ---
 
+## Key Design Decisions
+
+| Area | Decision | Rationale |
+|---|---|---|
+| **Language / platform** | Java 21 + Spring Boot 3.3 | Records, switch expressions, virtual-thread ready; LTS with enterprise support |
+| **Build** | Gradle Kotlin DSL multi-module | Clean library / app separation; BOM centralized at root for consistent versions |
+| **Resilience** | Resilience4j (not Spring Cloud Circuit Breaker) | Direct functional API, no AOP proxy; allows explicit `Callable` decoration |
+| **Decorator chain** | `TimeLimiter → Retry → CircuitBreaker` (outermost → innermost) | Timeout cancels individual attempts; retry accumulates backoff; CB shields upstream from cascades |
+| **Declarative proxy** | JDK Dynamic Proxy + `ImportBeanDefinitionRegistrar` | No bytecode dependencies (CGLIB/ASM); same pattern as Feign/OpenFeign, without the weight |
+| **HTTP client** | `RestClient` (Spring 6.1) | Fluent synchronous API; replaces `RestTemplate` without requiring WebFlux |
+| **Idempotency** | Redis `SET NX PX` (first-write-wins) | Atomic with no application-level locks; UUID v7 for time-ordered keys |
+| **Observability** | OTel API + Micrometer (backend-agnostic) | Swap exporter (Jaeger, Zipkin, Datadog) without touching code; Prometheus via actuator |
+| **Context propagation** | `Context.current().wrap(callable)` before `executor.submit()` | `TimeLimiter` runs on a separate thread; without this wrap the OTel span is lost |
+| **Configuration** | `@ConfigurationProperties` with field-by-field merge | `null` = inherit default; granular per-target override without repeating the full config |
+
+---
+
+## Centralized Configuration File
+
+All framework behaviour is controlled from a single YAML file in the consuming application:
+
+**`demo-service/src/main/resources/application.yml`**
+
+```yaml
+integration:
+  defaults:                        # ← global values inherited by every target
+    timeout:
+      connect: 1s
+      read: 3s
+    retry:
+      max-attempts: 3
+      base-backoff: 200ms
+      max-backoff: 2s
+      retry-on-status: [502, 503, 504]
+    circuit-breaker:
+      failure-rate-threshold: 50
+      sliding-window-size: 10
+      wait-duration-in-open-state: 30s
+    idempotency:
+      ttl: 24h
+      auto-generate: true
+    logging:
+      redact: [password, ssn, card_number, authorization]
+      log-bodies: false
+
+  targets:
+    flaky-upstream:                # ← overrides only for this target
+      base-url: ${FLAKY_UPSTREAM_URL:http://localhost:8081}
+      timeout:
+        read: 4s                   # overrides the default 3s; everything else is inherited
+```
+
+`IntegrationProperties.resolve(targetName)` merges `targets.<name>` over `defaults` field by field: a `null` field in the target inherits the default; a present field overrides it.
+
+---
+
 ## Quick Start
 
 ### 1. Prerequisites
