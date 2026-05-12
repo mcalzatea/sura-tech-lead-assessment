@@ -1,0 +1,22 @@
+{
+  "groups": [
+    {
+      "name": "integration",
+      "type": "com.sura.integration.config.IntegrationProperties",
+      "sourceType": "com.sura.integration.config.IntegrationProperties"
+    }
+  ],
+  "properties": [
+    {
+      "name": "integration.defaults",
+      "type": "com.sura.integration.config.TargetProperties",
+      "sourceType": "com.sura.integration.config.IntegrationProperties"
+    },
+    {
+      "name": "integration.targets",
+      "type": "java.util.Map<java.lang.String,com.sura.integration.config.TargetProperties>",
+      "sourceType": "com.sura.integration.config.IntegrationProperties"
+    }
+  ],
+  "hints": []
+}

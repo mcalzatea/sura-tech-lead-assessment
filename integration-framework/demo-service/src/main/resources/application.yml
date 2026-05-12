@@ -1,0 +1,55 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: demo-service
+  data:
+    redis:
+      host: ${REDIS_HOST:localhost}
+      port: 6379
+
+integration:
+  defaults:
+    timeout:
+      connect: 1s
+      read: 3s
+    retry:
+      max-attempts: 3
+      base-backoff: 200ms
+      max-backoff: 2s
+      retry-on-status: [502, 503, 504]
+    circuit-breaker:
+      failure-rate-threshold: 50
+      sliding-window-size: 10
+      wait-duration-in-open-state: 30s
+      permitted-calls-in-half-open: 3
+    idempotency:
+      ttl: 24h
+      header-name: Idempotency-Key
+      auto-generate: true
+    logging:
+      redact: [password, ssn, card_number, authorization]
+      log-bodies: false
+  targets:
+    flaky-upstream:
+      base-url: ${FLAKY_UPSTREAM_URL:http://localhost:8081}
+      timeout:
+        read: 4s
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,prometheus
+  metrics:
+    export:
+      prometheus:
+        enabled: true
+
+otel:
+  exporter:
+    otlp:
+      endpoint: ${OTEL_EXPORTER_OTLP_ENDPOINT:http://localhost:4318}
+  service:
+    name: demo-service

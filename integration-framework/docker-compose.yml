@@ -1,0 +1,85 @@
+version: "3.9"
+
+networks:
+  demo-net:
+    driver: bridge
+
+services:
+
+  redis:
+    image: redis:7-alpine
+    networks: [demo-net]
+    ports: ["6379:6379"]
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  jaeger:
+    image: jaegertracing/all-in-one:1.57
+    networks: [demo-net]
+    ports:
+      - "16686:16686"   # Jaeger UI
+      - "4317:4317"     # OTLP gRPC (otel-collector → jaeger)
+    environment:
+      - COLLECTOR_OTLP_ENABLED=true
+
+  otel-collector:
+    image: otel/opentelemetry-collector-contrib:0.100.0
+    networks: [demo-net]
+    ports:
+      - "4318:4318"     # OTLP HTTP (apps → collector)
+    volumes:
+      - ./otel-collector/config.yaml:/etc/otelcol-contrib/config.yaml
+    depends_on: [jaeger]
+
+  prometheus:
+    image: prom/prometheus:v2.52.0
+    networks: [demo-net]
+    ports: ["9090:9090"]
+    volumes:
+      - ./prometheus/prometheus.yml:/etc/prometheus/prometheus.yml
+    depends_on: [demo-service]
+
+  grafana:
+    image: grafana/grafana:10.4.2
+    networks: [demo-net]
+    ports: ["3000:3000"]
+    environment:
+      - GF_SECURITY_ADMIN_PASSWORD=admin
+      - GF_USERS_ALLOW_SIGN_UP=false
+    volumes:
+      - ./grafana-provisioning/datasources:/etc/grafana/provisioning/datasources
+      - ./grafana-provisioning/dashboards:/etc/grafana/provisioning/dashboards
+    depends_on: [prometheus, jaeger]
+
+  flaky-upstream:
+    build:
+      context: .
+      dockerfile: flaky-upstream/Dockerfile
+    networks: [demo-net]
+    ports: ["8081:8081"]
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8081/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  demo-service:
+    build:
+      context: .
+      dockerfile: demo-service/Dockerfile
+    networks: [demo-net]
+    ports: ["8080:8080"]
+    environment:
+      - REDIS_HOST=redis
+      - FLAKY_UPSTREAM_URL=http://flaky-upstream:8081
+      - OTEL_EXPORTER_OTLP_ENDPOINT=http://otel-collector:4318
+    depends_on:
+      redis:
+        condition: service_healthy
+      flaky-upstream:
+        condition: service_healthy
+      otel-collector:
+        condition: service_started
